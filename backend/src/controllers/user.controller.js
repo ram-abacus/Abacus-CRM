@@ -1,0 +1,179 @@
+import bcrypt from "bcryptjs"
+import prisma from "../config/prisma.js"
+
+export const getAllUsers = async (req, res, next) => {
+  try {
+    const { role, isActive } = req.query
+
+    const where = {}
+    if (role) where.role = role
+    if (isActive !== undefined) where.isActive = isActive === "true"
+
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    })
+
+    res.json(users)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const getUserById = async (req, res, next) => {
+  try {
+    const { id } = req.params
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        brandAccess: {
+          include: {
+            brand: true,
+          },
+        },
+      },
+    })
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    res.json(user)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const createUser = async (req, res, next) => {
+  try {
+    const { email, password, firstName, lastName, role } = req.body
+
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ message: "All fields are required" })
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10)
+
+    const user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        firstName,
+        lastName,
+        role: role || "CLIENT_VIEWER",
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+      },
+    })
+
+    // Log activity
+    await prisma.activityLog.create({
+      data: {
+        action: "CREATE_USER",
+        entity: "User",
+        entityId: user.id,
+        userId: req.user.id,
+      },
+    })
+
+    res.status(201).json(user)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const updateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { firstName, lastName, role, isActive } = req.body
+
+    // Only Super Admin can change roles
+    if (role && req.user.role !== "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Only Super Admin can change roles" })
+    }
+
+    const updateData = {}
+    if (firstName) updateData.firstName = firstName
+    if (lastName) updateData.lastName = lastName
+    if (role) updateData.role = role
+    if (isActive !== undefined) updateData.isActive = isActive
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+      },
+    })
+
+    // Log activity
+    await prisma.activityLog.create({
+      data: {
+        action: "UPDATE_USER",
+        entity: "User",
+        entityId: user.id,
+        userId: req.user.id,
+      },
+    })
+
+    res.json(user)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params
+
+    if (id === req.user.id) {
+      return res.status(400).json({ message: "Cannot delete your own account" })
+    }
+
+    await prisma.user.delete({
+      where: { id },
+    })
+
+    // Log activity
+    await prisma.activityLog.create({
+      data: {
+        action: "DELETE_USER",
+        entity: "User",
+        entityId: id,
+        userId: req.user.id,
+      },
+    })
+
+    res.json({ message: "User deleted successfully" })
+  } catch (error) {
+    next(error)
+  }
+}

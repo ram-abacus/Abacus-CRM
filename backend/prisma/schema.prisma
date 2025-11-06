@@ -1,0 +1,237 @@
+// Prisma Schema for Social Media CRM
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ACCOUNT_MANAGER
+  WRITER
+  DESIGNER
+  POST_SCHEDULER
+  CLIENT_VIEWER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ContentType {
+  STATIC
+  VIDEO
+  STORY
+  REEL
+  CAROUSEL
+  BLOG_POST
+}
+
+enum CalendarStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String
+  firstName         String
+  lastName          String
+  role              UserRole  @default(CLIENT_VIEWER)
+  isActive          Boolean   @default(true)
+  resetToken        String?
+  resetTokenExpiry  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  assignedTasks     Task[]           @relation("AssignedTasks")
+  createdTasks      Task[]           @relation("CreatedTasks")
+  comments          Comment[]
+  notifications     Notification[]
+  activityLogs      ActivityLog[]
+  brandAccess       BrandUser[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Brand {
+  id          String   @id @default(cuid())
+  name        String
+  logo        String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tasks       Task[]
+  users       BrandUser[]
+  calendars   Calendar[]
+
+  @@index([name])
+}
+
+model BrandUser {
+  id        String   @id @default(cuid())
+  brandId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, userId])
+  @@index([brandId])
+  @@index([userId])
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  brandId     String
+  assignedToId String?
+  createdById String
+  calendarId  String?
+  postingDate DateTime?
+  contentType ContentType?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  brand       Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  assignedTo  User?        @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  createdBy   User         @relation("CreatedTasks", fields: [createdById], references: [id])
+  calendar    Calendar?    @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+  comments    Comment[]
+  attachments Attachment[]
+
+  @@index([brandId])
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+  @@index([dueDate])
+  @@index([calendarId])
+  @@index([postingDate])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  taskId    String
+  userId    String
+  mentions  String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  fileName    String
+  fileUrl     String
+  fileType    String
+  fileSize    Int
+  description String?
+  taskId      String
+  createdAt   DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String
+  userId    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([entity])
+  @@index([createdAt])
+}
+
+model Calendar {
+  id          String         @id @default(cuid())
+  brandId     String
+  month       Int            // 1-12
+  year        Int
+  status      CalendarStatus @default(DRAFT)
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Relations
+  brand       Brand          @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  scopes      CalendarScope[]
+  tasks       Task[]
+
+  @@unique([brandId, month, year])
+  @@index([brandId])
+  @@index([month, year])
+}
+
+model CalendarScope {
+  id          String      @id @default(cuid())
+  calendarId  String
+  contentType ContentType
+  quantity    Int
+  completed   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  calendar    Calendar    @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, contentType])
+  @@index([calendarId])
+}
